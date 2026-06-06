@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Distributed Notification Microservice</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans min-h-screen p-8">
+
+    <div class="max-w-5xl mx-auto">
+        <header class="border-b border-slate-700 pb-4 mb-8">
+            <h1 class="text-3xl font-bold text-emerald-400">⚡ Distributed Event-Driven Notification Microservice</h1>
+            <p class="text-slate-400 mt-1">Simulating High-Traffic Queue Management & Real-Time Client Push</p>
+        </header>
+
+        <div class="bg-slate-800 p-4 rounded-lg mb-6 border border-slate-700 flex justify-between items-center">
+            <div>
+                <span class="text-slate-400">Active Session Persona:</span>
+                <span id="userBadge" class="ml-2 px-3 py-1 bg-indigo-600 text-white font-mono rounded text-sm font-bold">user_999</span>
+            </div>
+            <div class="flex items-center space-x-2">
+                <span class="h-3 w-3 rounded-full bg-amber-500 animate-pulse" id="statusDot"></span>
+                <span id="statusText" class="text-slate-300 text-sm">Connecting to Gateway...</span>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            
+            <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-xl">
+                <h2 class="text-xl font-semibold text-sky-400 mb-4 flex items-center">
+                    🛠️ Admin Control Panel (The Trigger)
+                </h2>
+                <p class="text-xs text-slate-400 mb-4">Firing this form simulates an external event (like an e-commerce order or an AQI alert) dropping a task payload into the Redis Queue.</p>
+                
+                <form id="alertForm" class="space-y-4">
+                    <div>
+                        <label class="block text-xs uppercase tracking-wider text-slate-400 font-bold mb-1">Target User ID</label>
+                        <input type="text" id="targetUserId" value="user_999" class="w-full bg-slate-900 border border-slate-700 rounded p-2 focus:outline-none focus:border-sky-500 font-mono text-sm text-emerald-400">
+                    </div>
+                    <div>
+                        <label class="block text-xs uppercase tracking-wider text-slate-400 font-bold mb-1">Alert Title</label>
+                        <input type="text" id="alertTitle" value="Critical AQI Alert 🚨" class="w-full bg-slate-900 border border-slate-700 rounded p-2 focus:outline-none focus:border-sky-500 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs uppercase tracking-wider text-slate-400 font-bold mb-1">Alert Message Body</label>
+                        <textarea id="alertMessage" rows="3" class="w-full bg-slate-900 border border-slate-700 rounded p-2 focus:outline-none focus:border-sky-500 text-sm">Air Quality Index has crossed 420 in your zone. Please keep windows closed.</textarea>
+                    </div>
+                    <button type="submit" class="w-full bg-sky-600 hover:bg-sky-500 transition text-white font-medium py-2 rounded shadow text-sm">
+                        Broadcast to Microservice Queue
+                    </button>
+                </form>
+            </div>
+
+            <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-xl flex flex-col h-[420px]">
+                <h2 class="text-xl font-semibold text-emerald-400 mb-4">
+                    📱 User Notification Feed (The Receiver)
+                </h2>
+                
+                <div id="notificationFeed" class="flex-1 bg-slate-900 rounded border border-slate-700 p-4 overflow-y-auto space-y-3 font-mono text-xs text-slate-300">
+                    <div class="text-slate-500 italic text-center pt-12">Awaiting incoming stream events from Redis background worker...</div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // Connect to our Node.js Socket.io server
+        const socket = io('http://localhost:5000');
+        const currentUserId = document.getElementById('targetUserId').value.trim();
+
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const notificationFeed = document.getElementById('notificationFeed');
+        const alertForm = document.getElementById('alertForm');
+
+        // Handle Socket Connection Status Update
+        socket.on('connect', () => {
+            statusDot.className = "h-3 w-3 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]";
+            statusText.innerText = "Connected to WebSocket Pipe";
+            
+            // Tell the backend server to register us into our private room channel
+           
+            socket.emit('join-room', currentUserId);
+        });
+
+        socket.on('disconnect', () => { // If connection drops, update status indicator
+            statusDot.className = "h-3 w-3 rounded-full bg-red-500 animate-pulse";
+            statusText.innerText = "Disconnected from Gateway";
+        });
+
+        // 🟢 LISTEN FOR REAL-TIME BROADCASTS FROM THE BULLMQ WORKER
+        socket.on('new-notification', (data) => {
+           
+            // Remove placeholder message if it exists
+            if (notificationFeed.innerHTML.includes('Awaiting incoming stream events')) {
+        notificationFeed.innerHTML = '';
+    }
+
+    // Fallbacks to handle any missing data gracefully without throwing breaks
+    const title = data.title || "Alert Triggered";
+    const message = data.message || "No message body details provided.";
+    const jobId = data.jobId || "N/A";
+    const timestamp = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
+
+    // Append live notification block to our view feed
+    const logBlock = document.createElement('div');
+    logBlock.className = "bg-slate-800 border-l-4 border-emerald-500 p-3 rounded shadow mb-3 font-sans";
+    logBlock.innerHTML = `
+        <div class="flex justify-between font-bold text-emerald-400 text-sm">
+            <span>${title}</span>
+            <span class="text-slate-500 font-mono text-xs">Job #${jobId}</span>
+        </div>
+        <p class="text-slate-300 mt-1 text-sm">${message}</p>
+        <div class="text-[10px] text-slate-500 mt-2 text-right">${timestamp}</div>
+    `;
+    
+         notificationFeed.prepend(logBlock);
+        });
+
+        // Handle Form Submission Interception (Trigger the Queue API)
+        alertForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const payload = {
+                userId: document.getElementById('targetUserId').value.trim(),
+                title: document.getElementById('alertTitle').value,
+                message: document.getElementById('alertMessage').value
+            };
+
+            try {
+                // Fire standard HTTP POST request to our Gateway Receiver route
+                const response = await fetch('http://localhost:5000/api/v1/trigger-alert', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+                console.log('API Gateway Accepted Confirmation:', result);
+
+            } catch (err) {
+                console.error('Failed to trigger alert API:', err);
+            }
+        });
+    </script>
+</body>
+</html>
